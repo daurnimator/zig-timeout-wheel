@@ -22,11 +22,14 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
     const abstime_t = timeout_t;
     const reltime_t = timeout_t;
 
+    assert(wheel_bit>0);
+    assert(wheel_num>0);
+    assert(((1 << (wheel_bit * wheel_num)) - 1) <= std.math.maxInt(timeout_t));
+
     const wheel_t = @IntType(false, 1<<wheel_bit);
     const wheel_len = (1 << wheel_bit);
     const wheel_max = (wheel_len - 1);
     const wheel_mask = (wheel_len - 1);
-    assert(((1 << (wheel_bit * wheel_num)) - 1) <= std.math.maxInt(timeout_t));
     const wheel_num_t = @IntType(false, wheel_num);
     const wheel_slot_t = @IntType(false, wheel_bit);
 
