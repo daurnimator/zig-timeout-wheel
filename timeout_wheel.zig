@@ -436,10 +436,6 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
 
 const DefaultTimeoutWheel = TimeoutWheel(u64, 6, 4, true, true);
 
-test "initialization" {
-    var t = DefaultTimeoutWheel.init();
-}
-
 test "timeout_wheel" {
     assert(DefaultTimeoutWheel.timeout_wheel(1) == 0);
     assert(DefaultTimeoutWheel.timeout_wheel(1<<6) == 1);
@@ -447,7 +443,7 @@ test "timeout_wheel" {
     assert(DefaultTimeoutWheel.timeout_wheel(1<<18) == 3);
 }
 
-test "simple test" {
+test "basic test" {
     const allocator = std.debug.global_allocator;
 
     inline for ([]type{
