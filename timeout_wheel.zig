@@ -505,5 +505,6 @@ test "simple test" {
         assert(mywheel.pending() == false);
         assert(mywheel.expired() == false);
         assert(mywheel.timeout() == std.math.maxInt(TimeoutWheelType.TimeoutType));
+        assert(mywheel.get() == null);
     }
 }
