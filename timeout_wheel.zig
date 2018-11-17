@@ -30,7 +30,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
     const wheel_len = (1 << wheel_bit);
     const wheel_max = (wheel_len - 1);
     const wheel_mask = (wheel_len - 1);
-    const wheel_num_t = @IntType(false, wheel_num);
+    const wheel_num_t = std.math.Log2Int(@IntType(false, wheel_num));
     const wheel_slot_t = @IntType(false, wheel_bit);
 
     return struct {
@@ -213,9 +213,9 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
 
                 if ((td_pending != &self.expiredList) and (td_pending.first == null)) {
                     // TODO: use pointer subtraction. See https://github.com/ziglang/zig/issues/1738
-                    var index = @ptrToInt(td_pending) - @ptrToInt(&self.wheel[0][0]);
-                    var wheel = @truncate(wheel_num_t, index / wheel_len);
-                    var slot = @truncate(wheel_slot_t, index % wheel_len);
+                    var index = (@ptrToInt(td_pending) - @ptrToInt(&self.wheel[0][0])) / @sizeOf(TimeoutList);
+                    var wheel = @intCast(wheel_num_t, index / wheel_len);
+                    var slot = @intCast(wheel_slot_t, index % wheel_len);
 
                     self.pendingWheels[wheel] &= ~(wheel_t(1) << slot);
                 }
@@ -235,7 +235,6 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
         }
 
         fn timeout_slot(wheel:wheel_num_t, expires: timeout_t) wheel_slot_t {
-            assert(wheel < wheel_num);
             return @truncate(wheel_slot_t,
                 (expires >> (std.math.Log2Int(timeout_t)(wheel) * wheel_bit))
                 - if (wheel != 0) u1(1) else u1(0)
@@ -279,8 +278,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             var elapsed:abstime_t = curtime - self.curtime;
             var todo = TimeoutList.init();
 
-            var wheel:wheel_num_t = 0;
-            while (wheel < wheel_num) : (wheel += 1 ) {
+            for (self.pendingWheels) |*slot_mask, wheel| {
                 var pending_slots:wheel_t = undefined;
 
                 // Calculate the slots expiring in this wheel
@@ -295,7 +293,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
                 //
                 // If a wheel rolls over, force a tick of the next higher
                 // wheel.
-                const wheel_offset = std.math.Log2Int(abstime_t)(wheel) * wheel_bit;
+                const wheel_offset = @intCast(std.math.Log2Int(abstime_t), wheel) * wheel_bit;
                 if ((elapsed >> wheel_offset) > wheel_max) {
                     pending_slots = ~wheel_t(0);
                 } else {
@@ -310,11 +308,11 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
                     pending_slots |= wheel_t(1) << nslot;
                 }
 
-                while ((pending_slots & self.pendingWheels[wheel]) != 0) {
+                while ((pending_slots & slot_mask.*) != 0) {
                     // ctz input cannot be zero: loop condition.
-                    var slot = @truncate(wheel_slot_t, @ctz(pending_slots & self.pendingWheels[wheel]));
+                    var slot = @truncate(wheel_slot_t, @ctz(pending_slots & slot_mask.*));
                     TimeoutListConcat(&todo, &self.wheel[wheel][slot]);
-                    self.pendingWheels[wheel] &= ~(wheel_t(1) << slot);
+                    slot_mask.* &= ~(wheel_t(1) << slot);
                 }
 
                 if ((0x1 & pending_slots) == 0)
@@ -346,9 +344,8 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
         pub fn pending(self: *const Self) bool {
             var pending_slots:wheel_t = 0;
 
-            var wheel:wheel_num_t = 0;
-            while (wheel < wheel_num) : (wheel += 1) {
-                pending_slots |= self.pendingWheels[wheel];
+            for (self.pendingWheels) |slot_mask| {
+                pending_slots |= slot_mask;
             }
 
             return pending_slots != 0;
@@ -378,10 +375,9 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             var interval = ~timeout_t(0);
             var relmask:timeout_t = 0;
 
-            var wheel:wheel_num_t = 0;
-            while (wheel < wheel_num) : (wheel += 1) {
-                if (self.pendingWheels[wheel] != 0) {
-                    const slot = @truncate(wheel_slot_t, self.curtime >> (wheel * wheel_bit));
+            for (self.pendingWheels) |slot_mask, wheel| {
+                if (slot_mask != 0) {
+                    const slot = @truncate(wheel_slot_t, self.curtime >> (@intCast(std.math.Log2Int(timeout_t), wheel) * wheel_bit));
 
                     var _timeout:timeout_t = undefined;
 
@@ -389,9 +385,9 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
                         // ctz input cannot be zero: self.pending[wheel] is
                         // nonzero, so rotr() is nonzero.
                         // https://github.com/ziglang/zig/issues/1739
-                        var tmp = @ctz(rotr(wheel_t, self.pendingWheels[wheel], wheel_t(slot)));
+                        var tmp = @ctz(rotr(wheel_t, slot_mask, wheel_t(slot)));
                         // +1 to higher order wheels as those timeouts are one rotation in the future (otherwise they'd be on a lower wheel or expired)
-                        _timeout = timeout_t(tmp + if(wheel != 0) u1(1) else u1(0)) << (wheel * wheel_bit);
+                        _timeout = timeout_t(tmp + if(wheel != 0) u1(1) else u1(0)) << (@intCast(std.math.Log2Int(timeout_t), wheel) * wheel_bit);
                     }
 
                     _timeout -= relmask & self.curtime;
@@ -449,9 +445,6 @@ test "timeout_wheel" {
     assert(DefaultTimeoutWheel.timeout_wheel(1<<6) == 1);
     assert(DefaultTimeoutWheel.timeout_wheel(1<<12) == 2);
     assert(DefaultTimeoutWheel.timeout_wheel(1<<18) == 3);
-    assert(DefaultTimeoutWheel.timeout_wheel(1<<24) == 4);
-    assert(DefaultTimeoutWheel.timeout_wheel(1<<32) == 5);
-    assert(DefaultTimeoutWheel.timeout_wheel(1<<38) == 6);
 }
 
 test "simple test" {
