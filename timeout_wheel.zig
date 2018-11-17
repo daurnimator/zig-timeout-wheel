@@ -352,7 +352,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
         }
 
         /// return true if any timeouts on expired queue
-        pub fn expired(self: *const Self, elapsed: reltime_t) bool {
+        pub fn expired(self: *const Self) bool {
             return self.expiredList.first != null;
         }
 
@@ -476,22 +476,28 @@ test "simple test" {
         TimeoutWheel(u8, 2, 2, true, true),
     }) |TimeoutWheelType| {
         var mywheel = TimeoutWheelType.init();
+        assert(mywheel.expired() == false);
         assert(mywheel.timeout() == std.math.maxInt(TimeoutWheelType.TimeoutType));
         var mytimeout = try mywheel.createTimeout(null, allocator);
         defer mywheel.destroyTimeout(mytimeout, allocator);
         mywheel.add(mytimeout, 5);
+        assert(mywheel.expired() == false);
         assert(mywheel.timeout() <= 5);
         assert(mywheel.get() == null);
         mywheel.step(1);
+        assert(mywheel.expired() == false);
         assert(mywheel.timeout() <= 4);
         assert(mywheel.get() == null);
         // step to one step before the timer should fire
         mywheel.step(3);
+        assert(mywheel.expired() == false);
         assert(mywheel.timeout() == 1);
         assert(mywheel.get() == null);
         mywheel.step(1);
+        assert(mywheel.expired() == true);
         assert(mywheel.timeout() == 0);
         assert(mywheel.get() == mytimeout);
+        assert(mywheel.expired() == false);
         assert(mywheel.timeout() == std.math.maxInt(TimeoutWheelType.TimeoutType));
     }
 }
