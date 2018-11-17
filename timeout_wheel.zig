@@ -132,9 +132,9 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             }
 
             /// remove timeout from any timing wheel (okay if not member of any)
-            pub fn delete(self: *Timeout) void {
+            pub fn remove(self: *Timeout) void {
                 if (allow_relative_access) {
-                    self.node.data.timeouts.?.delete(self);
+                    self.node.data.timeouts.?.remove(self);
                 }
             }
         };
@@ -206,7 +206,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             }
         }
 
-        pub fn delete(self: *Self, to: *Timeout) void {
+        pub fn remove(self: *Self, to: *Timeout) void {
             const td = &to.node.data;
             if (td.pending) |td_pending| {
                 td_pending.remove(&to.node);
@@ -242,7 +242,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
         }
 
         fn sched(self: *Self, to: *Timeout, expires: timeout_t) void {
-            self.delete(to);
+            self.remove(to);
             const td = &to.node.data;
             td.expires = expires;
 
@@ -498,6 +498,18 @@ test "simple test" {
         assert(mywheel.expired() == true);
         assert(mywheel.timeout() == 0);
         assert(mywheel.get() == mytimeout);
+        assert(mywheel.pending() == false);
+        assert(mywheel.expired() == false);
+        assert(mywheel.timeout() >= 0);
+        assert(mywheel.get() == null);
+
+        // test remove
+        mywheel.add(mytimeout, 5);
+        assert(mywheel.pending() == true);
+        assert(mywheel.expired() == false);
+        assert(mywheel.timeout() <= 5);
+        assert(mywheel.get() == null);
+        mywheel.remove(mytimeout);
         assert(mywheel.pending() == false);
         assert(mywheel.expired() == false);
         assert(mywheel.timeout() >= 0);
