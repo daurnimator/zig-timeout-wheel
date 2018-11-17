@@ -39,48 +39,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
 
         const TimeoutType = timeout_t;
 
-        const TimeoutData = struct {
-            /// initialize TimeoutData structure
-            pub fn init(init_interval:?reltime_t) TimeoutData {
-                return TimeoutData {
-                    .expires = 0,
-                    .pending = null,
-                    .interval = init: {
-                        if (allow_intervals) {
-                            if (init_interval) |int| {
-                                assert(int > 0);
-                                break :init int;
-                            } else {
-                                break :init 0;
-                            }
-                        } else {
-                            assert(init_interval == null);
-                        }
-                    },
-                    .timeouts = if (allow_relative_access) null,
-                };
-            }
-
-            /// absolute expiration time
-            expires: abstime_t,
-
-            /// TimeoutData list if pending on wheel or expiry queue
-            pending: ?*TimeoutList,
-
-            /// TimeoutData interval if periodic
-            /// rather than using an optional type we internally use 0 to indicate no interval
-            interval: if (allow_intervals) reltime_t else void,
-
-            /// timeouts collection if member of
-            timeouts: if (allow_relative_access) ?*TimeoutWheelType else void,
-            fn setTimeouts(self: *TimeoutData, T: ?*TimeoutWheelType) void {
-                if (allow_relative_access) {
-                    self.timeouts = T;
-                }
-            }
-        };
-
-        const TimeoutList = std.LinkedList(TimeoutData);
+        const TimeoutList = std.LinkedList(void);
 
         // https://github.com/ziglang/zig/pull/1736
         /// Concatenate list2 onto the end of list1, removing all entries from the former.
@@ -109,13 +68,54 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
 
         /// Public Timeout structure
         pub const Timeout = struct {
+            // intrusive LinkedList
             node: TimeoutList.Node,
+
+            /// initialize Timeout structure
+            pub fn init(init_interval:?reltime_t) Timeout {
+                return Timeout {
+                    .node = TimeoutList.Node.init(undefined),
+                    .expires = 0,
+                    .pending = null,
+                    .interval = init: {
+                        if (allow_intervals) {
+                            if (init_interval) |int| {
+                                assert(int > 0);
+                                break :init int;
+                            } else {
+                                break :init 0;
+                            }
+                        } else {
+                            assert(init_interval == null);
+                        }
+                    },
+                    .timeouts = if (allow_relative_access) null,
+                };
+            }
+
+            /// absolute expiration time
+            expires: abstime_t,
+
+            /// Timeout list if pending on wheel or expiry queue
+            pending: ?*TimeoutList,
+
+            /// Timeout interval if periodic
+            /// rather than using an optional type we internally use 0 to indicate no interval
+            interval: if (allow_intervals) reltime_t else void,
+
+            /// timeouts collection if member of
+            timeouts: if (allow_relative_access) ?*TimeoutWheelType else void,
+            fn setTimeouts(self: *Timeout, T: ?*TimeoutWheelType) void {
+                if (allow_relative_access) {
+                    self.timeouts = T;
+                }
+            }
 
             /// true if on timing wheel, false otherwise
             pub fn isPending(self: *Timeout) if (allow_relative_access) bool else void {
                 if (allow_relative_access) {
-                    if (self.node.data.pending) |p| {
-                        return p != &self.node.data.timeouts.?.expiredList;
+                    if (self.pending) |p| {
+                        return p != &self.timeouts.?.expiredList;
                     }
                     return false;
                 }
@@ -124,8 +124,8 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             /// true if on expired queue, false otherwise
             pub fn isExpired(self: *Timeout) if (allow_relative_access) bool else void {
                 if (allow_relative_access) {
-                    if (self.node.data.pending) |p| {
-                        return p == &self.node.data.timeouts.?.expiredList;
+                    if (self.pending) |p| {
+                        return p == &self.timeouts.?.expiredList;
                     }
                     return false;
                 }
@@ -134,7 +134,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             /// remove timeout from any timing wheel (okay if not member of any)
             pub fn remove(self: *Timeout) void {
                 if (allow_relative_access) {
-                    self.node.data.timeouts.?.remove(self);
+                    self.timeouts.?.remove(self);
                 }
             }
         };
@@ -147,7 +147,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
         /// Returns:
         ///     A pointer to the new timeout.
         pub fn createTimeout(self: *Self, interval:?reltime_t, allocator: *Allocator) !*Timeout {
-            return allocator.create(Timeout{.node = TimeoutList.Node.init(TimeoutData.init(interval))});
+            return allocator.create(Timeout.init(interval));
         }
 
         /// Deallocate a Timeout.
@@ -199,34 +199,33 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             {
                 var it = resetList.first;
                 while (it) |node| : (it = node.next) {
-                    var td:*TimeoutData = &node.data;
-                    td.pending = null;
-                    td.setTimeouts(null);
+                    var to:*Timeout = @fieldParentPtr(Timeout, "node", node);
+                    to.pending = null;
+                    to.setTimeouts(null);
                 }
             }
         }
 
         pub fn remove(self: *Self, to: *Timeout) void {
-            const td = &to.node.data;
-            if (td.pending) |td_pending| {
-                td_pending.remove(&to.node);
+            if (to.pending) |to_pending| {
+                to_pending.remove(&to.node);
 
-                if ((td_pending != &self.expiredList) and (td_pending.first == null)) {
+                if ((to_pending != &self.expiredList) and (to_pending.first == null)) {
                     // TODO: use pointer subtraction. See https://github.com/ziglang/zig/issues/1738
-                    var index = (@ptrToInt(td_pending) - @ptrToInt(&self.wheel[0][0])) / @sizeOf(TimeoutList);
+                    var index = (@ptrToInt(to_pending) - @ptrToInt(&self.wheel[0][0])) / @sizeOf(TimeoutList);
                     var wheel = @intCast(wheel_num_t, index / wheel_len);
                     var slot = @intCast(wheel_slot_t, index % wheel_len);
 
                     self.pendingWheels[wheel] &= ~(wheel_t(1) << slot);
                 }
 
-                td.pending = null;
-                td.setTimeouts(null);
+                to.pending = null;
+                to.setTimeouts(null);
             }
         }
 
-        fn timeout_rem(self: *const Self, td: *TimeoutData) reltime_t {
-            return td.expires - self.curtime;
+        fn timeout_rem(self: *const Self, to: *Timeout) reltime_t {
+            return to.expires - self.curtime;
         }
 
         fn timeout_wheel(t: timeout_t) wheel_num_t {
@@ -243,28 +242,27 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
 
         fn sched(self: *Self, to: *Timeout, expires: timeout_t) void {
             self.remove(to);
-            const td = &to.node.data;
-            td.expires = expires;
+            to.expires = expires;
 
-            td.setTimeouts(self);
+            to.setTimeouts(self);
 
             if (expires > self.curtime) {
-                var rem = self.timeout_rem(td);
+                var rem = self.timeout_rem(to);
 
                 // rem is nonzero since:
                 //   rem == timeout_rem(T, td),
-                //       == td.expires - self.curtime
+                //       == to.expires - self.curtime
                 //   and above we have expires > self.curtime.
                 var wheel = timeout_wheel(rem);
-                var slot = timeout_slot(wheel, td.expires);
+                var slot = timeout_slot(wheel, to.expires);
 
-                td.pending = &self.wheel[wheel][slot];
-                td.pending.?.append(&to.node);
+                to.pending = &self.wheel[wheel][slot];
+                to.pending.?.append(&to.node);
 
                 self.pendingWheels[wheel] |= wheel_t(1) << slot;
             } else {
-                td.pending = &self.expiredList;
-                td.pending.?.append(&to.node);
+                to.pending = &self.expiredList;
+                to.pending.?.append(&to.node);
             }
         }
 
@@ -326,12 +324,11 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
 
             while (todo.first) |node| {
                 var to = @fieldParentPtr(Timeout, "node", node);
-                var td:*TimeoutData = &node.data;
 
                 todo.remove(node);
-                td.pending = null;
+                to.pending = null;
 
-                self.sched(to, td.expires);
+                self.sched(to, to.expires);
             }
         }
 
@@ -406,27 +403,26 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
         /// return any expired timeout (caller should loop until NULL-return)
         pub fn get(self: *Self) ?*Timeout {
             const node = self.expiredList.first orelse return null;
-            const td:*TimeoutData = &(node).data;
-
-            self.expiredList.remove(node);
-            td.pending = null;
-            td.setTimeouts(null);
-
             const to = @fieldParentPtr(Timeout, "node", node);
 
-            if (allow_intervals and td.interval != 0) {
-                td.expires += td.interval;
+            self.expiredList.remove(node);
+            to.pending = null;
+            to.setTimeouts(null);
 
-                if (td.expires <= self.curtime) {
+
+            if (allow_intervals and to.interval != 0) {
+                to.expires += to.interval;
+
+                if (to.expires <= self.curtime) {
                     // If we've missed the next firing of this timeout, reschedule
                     // it to occur at the next multiple of its interval after
                     // the last time that it fired.
-                    var n = self.curtime - td.expires;
-                    var r:timeout_t = n % td.interval;
-                    td.expires = self.curtime + (td.interval - r);
+                    var n = self.curtime - to.expires;
+                    var r:timeout_t = n % to.interval;
+                    to.expires = self.curtime + (to.interval - r);
                 }
 
-                self.sched(to, td.expires);
+                self.sched(to, to.expires);
             }
 
             return to;
