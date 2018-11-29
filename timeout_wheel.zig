@@ -41,31 +41,6 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
 
         const TimeoutList = std.LinkedList(void);
 
-        // https://github.com/ziglang/zig/pull/1736
-        /// Concatenate list2 onto the end of list1, removing all entries from the former.
-        ///
-        /// Arguments:
-        ///     list1: the list to concatenate onto
-        ///     list2: the list to be concatenated
-        fn TimeoutListConcat(list1: *TimeoutList, list2: *TimeoutList) void {
-            if (list2.first) |l2_first| {
-                if (list1.last) |l1_last| {
-                    l1_last.next = list2.first;
-                    l2_first.prev = list1.last;
-                    list1.len += list2.len;
-                } else {
-                    // list1 was empty
-                    list1.first = list2.first;
-                    list1.len = list2.len;
-                }
-                list1.last = list2.last;
-                list2.first = null;
-                list2.last = null;
-                list2.len = 0;
-            }
-        }
-
-
         /// Public Timeout structure
         pub const Timeout = struct {
             // intrusive LinkedList
@@ -190,11 +165,11 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
 
             for (self.wheel) |*wheel| {
                 for (wheel) |*slot_ptr| {
-                    TimeoutListConcat(&resetList, slot_ptr);
+                    resetList.concatByMoving(slot_ptr);
                 }
             }
 
-            TimeoutListConcat(&resetList, &self.expiredList);
+            resetList.concatByMoving(&self.expiredList);
 
             {
                 var it = resetList.first;
@@ -309,7 +284,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
                 while ((pending_slots & slot_mask.*) != 0) {
                     // ctz input cannot be zero: loop condition.
                     var slot = @truncate(wheel_slot_t, @ctz(pending_slots & slot_mask.*));
-                    TimeoutListConcat(&todo, &self.wheel[wheel][slot]);
+                    todo.concatByMoving(&self.wheel[wheel][slot]);
                     slot_mask.* &= ~(wheel_t(1) << slot);
                 }
 
