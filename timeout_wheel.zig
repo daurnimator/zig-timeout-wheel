@@ -10,7 +10,6 @@ fn fls(n: var) usize {
     return @typeOf(n).bit_count - @clz(n);
 }
 
-
 /// wheel_bit - The number of value bits mapped in each wheel. The
 ///             lowest-order wheel_bit bits index the lowest-order (highest
 ///             resolution) wheel, the next group of wheel_bit bits the
@@ -18,15 +17,15 @@ fn fls(n: var) usize {
 /// wheel_num - The number of wheels. wheel_bit * wheel_num = the number of
 ///             value bits used by all the wheels. Any timeout value
 ///             larger than this will cycle through again.
-fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comptime_int, allow_intervals:bool, allow_relative_access:bool) type {
+fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: comptime_int, allow_intervals: bool, allow_relative_access: bool) type {
     const abstime_t = timeout_t;
     const reltime_t = timeout_t;
 
-    assert(wheel_bit>0);
-    assert(wheel_num>0);
+    assert(wheel_bit > 0);
+    assert(wheel_num > 0);
     assert(((1 << (wheel_bit * wheel_num)) - 1) <= std.math.maxInt(timeout_t));
 
-    const wheel_t = @IntType(false, 1<<wheel_bit);
+    const wheel_t = @IntType(false, 1 << wheel_bit);
     const wheel_len = (1 << wheel_bit);
     const wheel_max = (wheel_len - 1);
     const wheel_mask = (wheel_len - 1);
@@ -47,8 +46,8 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             node: TimeoutList.Node,
 
             /// initialize Timeout structure
-            pub fn init(init_interval:?reltime_t) Timeout {
-                return Timeout {
+            pub fn init(init_interval: ?reltime_t) Timeout {
+                return Timeout{
                     .node = TimeoutList.Node.init(undefined),
                     .expires = 0,
                     .pending = null,
@@ -87,7 +86,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             }
 
             /// true if on timing wheel, false otherwise
-            pub fn isPending(self: *Timeout) if (allow_relative_access) bool else void {
+            pub fn isPending(self: *Timeout) (if (allow_relative_access) bool else void) {
                 if (allow_relative_access) {
                     if (self.pending) |p| {
                         return p != &self.timeouts.?.expiredList;
@@ -97,7 +96,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             }
 
             /// true if on expired queue, false otherwise
-            pub fn isExpired(self: *Timeout) if (allow_relative_access) bool else void {
+            pub fn isExpired(self: *Timeout) (if (allow_relative_access) bool else void) {
                 if (allow_relative_access) {
                     if (self.pending) |p| {
                         return p == &self.timeouts.?.expiredList;
@@ -176,7 +175,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             {
                 var it = resetList.first;
                 while (it) |node| : (it = node.next) {
-                    var to:*Timeout = @fieldParentPtr(Timeout, "node", node);
+                    var to: *Timeout = @fieldParentPtr(Timeout, "node", node);
                     to.pending = null;
                     to.setTimeouts(null);
                 }
@@ -210,11 +209,8 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             return @intCast(wheel_num_t, (@intCast(std.math.Log2Int(timeout_t), fls(std.math.min(t, std.math.maxInt(timeout_t)))) - 1) / wheel_bit);
         }
 
-        fn timeout_slot(wheel:wheel_num_t, expires: timeout_t) wheel_slot_t {
-            return @truncate(wheel_slot_t,
-                (expires >> (std.math.Log2Int(timeout_t)(wheel) * wheel_bit))
-                - if (wheel != 0) u1(1) else u1(0)
-            );
+        fn timeout_slot(wheel: wheel_num_t, expires: timeout_t) wheel_slot_t {
+            return @truncate(wheel_slot_t, (expires >> (std.math.Log2Int(timeout_t)(wheel) * wheel_bit)) - if (wheel != 0) u1(1) else u1(0));
         }
 
         fn sched(self: *Self, to: *Timeout, expires: timeout_t) void {
@@ -250,11 +246,11 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
 
         /// update timing wheel with current absolute time
         pub fn update(self: *Self, curtime: abstime_t) void {
-            var elapsed:abstime_t = curtime - self.curtime;
+            var elapsed: abstime_t = curtime - self.curtime;
             var todo = TimeoutList.init();
 
             for (self.pendingWheels) |*slot_mask, wheel| {
-                var pending_slots:wheel_t = undefined;
+                var pending_slots: wheel_t = undefined;
 
                 // Calculate the slots expiring in this wheel
                 //
@@ -316,7 +312,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
 
         // return true if any timeouts pending on timing wheel
         pub fn pending(self: *const Self) bool {
-            var pending_slots:wheel_t = 0;
+            var pending_slots: wheel_t = 0;
 
             for (self.pendingWheels) |slot_mask| {
                 pending_slots |= slot_mask;
@@ -347,13 +343,13 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             }
 
             var interval = ~timeout_t(0);
-            var relmask:timeout_t = 0;
+            var relmask: timeout_t = 0;
 
             for (self.pendingWheels) |slot_mask, wheel| {
                 if (slot_mask != 0) {
                     const slot = @truncate(wheel_slot_t, self.curtime >> (@intCast(std.math.Log2Int(timeout_t), wheel) * wheel_bit));
 
-                    var _timeout:timeout_t = undefined;
+                    var _timeout: timeout_t = undefined;
 
                     {
                         // ctz input cannot be zero: self.pending[wheel] is
@@ -361,7 +357,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
                         // https://github.com/ziglang/zig/issues/1739
                         var tmp = @ctz(rotr(wheel_t, slot_mask, wheel_t(slot)));
                         // +1 to higher order wheels as those timeouts are one rotation in the future (otherwise they'd be on a lower wheel or expired)
-                        _timeout = timeout_t(tmp + if(wheel != 0) u1(1) else u1(0)) << (@intCast(std.math.Log2Int(timeout_t), wheel) * wheel_bit);
+                        _timeout = timeout_t(tmp + if (wheel != 0) u1(1) else u1(0)) << (@intCast(std.math.Log2Int(timeout_t), wheel) * wheel_bit);
                     }
 
                     _timeout -= relmask & self.curtime;
@@ -386,7 +382,6 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
             to.pending = null;
             to.setTimeouts(null);
 
-
             if (allow_intervals and to.interval != 0) {
                 to.expires += to.interval;
 
@@ -395,7 +390,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
                     // it to occur at the next multiple of its interval after
                     // the last time that it fired.
                     var n = self.curtime - to.expires;
-                    var r:timeout_t = n % to.interval;
+                    var r: timeout_t = n % to.interval;
                     to.expires = self.curtime + (to.interval - r);
                 }
 
@@ -411,9 +406,9 @@ const DefaultTimeoutWheel = TimeoutWheel(u64, 6, 4, true, true);
 
 test "timeout_wheel" {
     assert(DefaultTimeoutWheel.timeout_wheel(1) == 0);
-    assert(DefaultTimeoutWheel.timeout_wheel(1<<6) == 1);
-    assert(DefaultTimeoutWheel.timeout_wheel(1<<12) == 2);
-    assert(DefaultTimeoutWheel.timeout_wheel(1<<18) == 3);
+    assert(DefaultTimeoutWheel.timeout_wheel(1 << 6) == 1);
+    assert(DefaultTimeoutWheel.timeout_wheel(1 << 12) == 2);
+    assert(DefaultTimeoutWheel.timeout_wheel(1 << 18) == 3);
 }
 
 test "basic test" {
