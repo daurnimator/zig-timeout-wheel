@@ -121,8 +121,10 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit:comptime_int, wheel_num:comp
         ///
         /// Returns:
         ///     A pointer to the new timeout.
-        pub fn createTimeout(self: *Self, interval:?reltime_t, allocator: *Allocator) !*Timeout {
-            return allocator.create(Timeout.init(interval));
+        pub fn createTimeout(self: *Self, interval: ?reltime_t, allocator: *Allocator) !*Timeout {
+            const t = try allocator.create(Timeout);
+            t.* = Timeout.init(interval);
+            return t;
         }
 
         /// Deallocate a Timeout.
