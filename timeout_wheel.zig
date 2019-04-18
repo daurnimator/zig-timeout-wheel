@@ -17,7 +17,19 @@ fn fls(n: var) usize {
 /// wheel_num - The number of wheels. wheel_bit * wheel_num = the number of
 ///             value bits used by all the wheels. Any timeout value
 ///             larger than this will cycle through again.
-fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: comptime_int, allow_intervals: bool, allow_relative_access: bool) type {
+fn TimeoutWheel(
+    comptime timeout_t: type,
+    wheel_bit: comptime_int,
+    wheel_num: comptime_int,
+    intervals: enum {
+        NoIntervals,
+        AllowIntervals,
+    },
+    relative_access: enum {
+        NoRelative,
+        AllowRelative,
+    },
+) type {
     const abstime_t = timeout_t;
     const reltime_t = timeout_t;
 
@@ -52,7 +64,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: co
                     .expires = 0,
                     .pending = null,
                     .interval = init: {
-                        if (allow_intervals) {
+                        if (intervals == .AllowIntervals) {
                             if (init_interval) |int| {
                                 assert(int > 0);
                                 break :init int;
@@ -63,7 +75,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: co
                             assert(init_interval == null);
                         }
                     },
-                    .timeouts = if (allow_relative_access) null,
+                    .timeouts = if (relative_access == .AllowRelative) null,
                 };
             }
 
@@ -75,19 +87,19 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: co
 
             /// Timeout interval if periodic
             /// rather than using an optional type we internally use 0 to indicate no interval
-            interval: if (allow_intervals) reltime_t else void,
+            interval: if (intervals == .AllowIntervals) reltime_t else void,
 
             /// timeouts collection if member of
-            timeouts: if (allow_relative_access) ?*TimeoutWheelType else void,
+            timeouts: if (relative_access == .AllowRelative) ?*TimeoutWheelType else void,
             fn setTimeouts(self: *Timeout, T: ?*TimeoutWheelType) void {
-                if (allow_relative_access) {
+                if (relative_access == .AllowRelative) {
                     self.timeouts = T;
                 }
             }
 
             /// true if on timing wheel, false otherwise
-            pub fn isPending(self: *Timeout) (if (allow_relative_access) bool else void) {
-                if (allow_relative_access) {
+            pub fn isPending(self: *Timeout) (if (relative_access == .AllowRelative) bool else void) {
+                if (relative_access == .AllowRelative) {
                     if (self.pending) |p| {
                         return p != &self.timeouts.?.expiredList;
                     }
@@ -96,8 +108,8 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: co
             }
 
             /// true if on expired queue, false otherwise
-            pub fn isExpired(self: *Timeout) (if (allow_relative_access) bool else void) {
-                if (allow_relative_access) {
+            pub fn isExpired(self: *Timeout) (if (relative_access == .AllowRelative) bool else void) {
+                if (relative_access == .AllowRelative) {
                     if (self.pending) |p| {
                         return p == &self.timeouts.?.expiredList;
                     }
@@ -107,7 +119,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: co
 
             /// remove timeout from any timing wheel (okay if not member of any)
             pub fn remove(self: *Timeout) void {
-                if (allow_relative_access) {
+                if (relative_access == .AllowRelative) {
                     self.timeouts.?.remove(self);
                 }
             }
@@ -382,7 +394,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: co
             to.pending = null;
             to.setTimeouts(null);
 
-            if (allow_intervals and to.interval != 0) {
+            if (intervals == .AllowIntervals and to.interval != 0) {
                 to.expires += to.interval;
 
                 if (to.expires <= self.curtime) {
@@ -402,7 +414,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: co
     };
 }
 
-const DefaultTimeoutWheel = TimeoutWheel(u64, 6, 4, true, true);
+const DefaultTimeoutWheel = TimeoutWheel(u64, 6, 4, .AllowIntervals, .AllowRelative);
 
 test "timeout_wheel" {
     assert(DefaultTimeoutWheel.timeout_wheel(1) == 0);
@@ -417,23 +429,23 @@ test "basic test" {
     inline for ([]type{
         DefaultTimeoutWheel,
         // test with all flag combinations
-        TimeoutWheel(u64, 6, 4, false, true),
-        TimeoutWheel(u64, 6, 4, true, false),
-        TimeoutWheel(u64, 6, 4, false, false),
+        TimeoutWheel(u64, 6, 4, .NoIntervals, .AllowRelative),
+        TimeoutWheel(u64, 6, 4, .AllowIntervals, .NoRelative),
+        TimeoutWheel(u64, 6, 4, .NoIntervals, .NoRelative),
         // test with some different bit sizes
-        TimeoutWheel(u128, 11, 4, true, true),
-        TimeoutWheel(u64, 10, 4, true, true),
-        TimeoutWheel(u64, 9, 4, true, true),
-        TimeoutWheel(u64, 8, 4, true, true),
-        TimeoutWheel(u64, 7, 4, true, true),
-        TimeoutWheel(u64, 5, 4, true, true),
-        TimeoutWheel(u64, 4, 4, true, true),
-        TimeoutWheel(u64, 3, 4, true, true),
+        TimeoutWheel(u128, 11, 4, .AllowIntervals, .AllowRelative),
+        TimeoutWheel(u64, 10, 4, .AllowIntervals, .AllowRelative),
+        TimeoutWheel(u64, 9, 4, .AllowIntervals, .AllowRelative),
+        TimeoutWheel(u64, 8, 4, .AllowIntervals, .AllowRelative),
+        TimeoutWheel(u64, 7, 4, .AllowIntervals, .AllowRelative),
+        TimeoutWheel(u64, 5, 4, .AllowIntervals, .AllowRelative),
+        TimeoutWheel(u64, 4, 4, .AllowIntervals, .AllowRelative),
+        TimeoutWheel(u64, 3, 4, .AllowIntervals, .AllowRelative),
         // different timeout sizes
-        TimeoutWheel(u128, 3, 4, true, true),
-        TimeoutWheel(u32, 3, 4, true, true),
-        TimeoutWheel(u16, 3, 4, true, true),
-        TimeoutWheel(u8, 2, 2, true, true),
+        TimeoutWheel(u128, 3, 4, .AllowIntervals, .AllowRelative),
+        TimeoutWheel(u32, 3, 4, .AllowIntervals, .AllowRelative),
+        TimeoutWheel(u16, 3, 4, .AllowIntervals, .AllowRelative),
+        TimeoutWheel(u8, 2, 2, .AllowIntervals, .AllowRelative),
     }) |TimeoutWheelType| {
         var mywheel = TimeoutWheelType.init();
         assert(mywheel.pending() == false);
