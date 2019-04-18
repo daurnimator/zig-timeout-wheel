@@ -188,9 +188,9 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: co
 
                 if ((to_pending != &self.expiredList) and (to_pending.first == null)) {
                     // TODO: use pointer subtraction. See https://github.com/ziglang/zig/issues/1738
-                    var index = (@ptrToInt(to_pending) - @ptrToInt(&self.wheel[0][0])) / @sizeOf(TimeoutList);
-                    var wheel = @intCast(wheel_num_t, index / wheel_len);
-                    var slot = @intCast(wheel_slot_t, index % wheel_len);
+                    const index = (@ptrToInt(to_pending) - @ptrToInt(&self.wheel[0][0])) / @sizeOf(TimeoutList);
+                    const wheel = @intCast(wheel_num_t, index / wheel_len);
+                    const slot = @intCast(wheel_slot_t, index % wheel_len);
 
                     self.pendingWheels[wheel] &= ~(wheel_t(1) << slot);
                 }
@@ -220,14 +220,14 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: co
             to.setTimeouts(self);
 
             if (expires > self.curtime) {
-                var rem = self.timeout_rem(to);
+                const rem = self.timeout_rem(to);
 
                 // rem is nonzero since:
                 //   rem == timeout_rem(T, td),
                 //       == to.expires - self.curtime
                 //   and above we have expires > self.curtime.
-                var wheel = timeout_wheel(rem);
-                var slot = timeout_slot(wheel, to.expires);
+                const wheel = timeout_wheel(rem);
+                const slot = timeout_slot(wheel, to.expires);
 
                 to.pending = &self.wheel[wheel][slot];
                 to.pending.?.append(&to.node);
@@ -268,20 +268,20 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: co
                 if ((elapsed >> wheel_offset) > wheel_max) {
                     pending_slots = ~wheel_t(0);
                 } else {
-                    var _elapsed = @truncate(wheel_slot_t, elapsed >> wheel_offset);
+                    const _elapsed = @truncate(wheel_slot_t, elapsed >> wheel_offset);
 
-                    var oslot = self.curtime >> wheel_offset;
+                    const oslot = self.curtime >> wheel_offset;
                     // https://github.com/ziglang/zig/issues/1739
                     pending_slots = rotl(wheel_t, (wheel_t(1) << _elapsed) - 1, @intCast(wheel_t, oslot));
 
-                    var nslot = @truncate(wheel_slot_t, curtime >> wheel_offset);
+                    const nslot = @truncate(wheel_slot_t, curtime >> wheel_offset);
                     // https://github.com/ziglang/zig/issues/1739
                     pending_slots |= wheel_t(1) << nslot;
                 }
 
                 while ((pending_slots & slot_mask.*) != 0) {
                     // ctz input cannot be zero: loop condition.
-                    var slot = @truncate(wheel_slot_t, @ctz(pending_slots & slot_mask.*));
+                    const slot = @truncate(wheel_slot_t, @ctz(pending_slots & slot_mask.*));
                     todo.concatByMoving(&self.wheel[wheel][slot]);
                     slot_mask.* &= ~(wheel_t(1) << slot);
                 }
@@ -355,7 +355,7 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: co
                         // ctz input cannot be zero: self.pending[wheel] is
                         // nonzero, so rotr() is nonzero.
                         // https://github.com/ziglang/zig/issues/1739
-                        var tmp = @ctz(rotr(wheel_t, slot_mask, wheel_t(slot)));
+                        const tmp = @ctz(rotr(wheel_t, slot_mask, wheel_t(slot)));
                         // +1 to higher order wheels as those timeouts are one rotation in the future (otherwise they'd be on a lower wheel or expired)
                         _timeout = timeout_t(tmp + if (wheel != 0) u1(1) else u1(0)) << (@intCast(std.math.Log2Int(timeout_t), wheel) * wheel_bit);
                     }
@@ -389,8 +389,8 @@ fn TimeoutWheel(comptime timeout_t: type, wheel_bit: comptime_int, wheel_num: co
                     // If we've missed the next firing of this timeout, reschedule
                     // it to occur at the next multiple of its interval after
                     // the last time that it fired.
-                    var n = self.curtime - to.expires;
-                    var r: timeout_t = n % to.interval;
+                    const n = self.curtime - to.expires;
+                    const r: timeout_t = n % to.interval;
                     to.expires = self.curtime + (to.interval - r);
                 }
 
@@ -439,7 +439,7 @@ test "basic test" {
         assert(mywheel.pending() == false);
         assert(mywheel.expired() == false);
         assert(mywheel.timeout() >= 0);
-        var mytimeout = try mywheel.createTimeout(null, allocator);
+        const mytimeout = try mywheel.createTimeout(null, allocator);
         defer mywheel.destroyTimeout(mytimeout, allocator);
         mywheel.add(mytimeout, 5);
         assert(mywheel.pending() == true);
