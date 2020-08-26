@@ -6,7 +6,7 @@ const Allocator = std.mem.Allocator;
 const rotl = std.math.rotl;
 const rotr = std.math.rotr;
 
-fn fls(n: var) usize {
+fn fls(n: anytype) usize {
     return @typeOf(n).bit_count - @clz(n);
 }
 
@@ -57,6 +57,19 @@ fn TimeoutWheel(
             // intrusive LinkedList
             node: TimeoutList.Node,
 
+            /// absolute expiration time
+            expires: abstime_t,
+
+            /// Timeout list if pending on wheel or expiry queue
+            pending: ?*TimeoutList,
+
+            /// Timeout interval if periodic
+            /// rather than using an optional type we internally use 0 to indicate no interval
+            interval: if (intervals == .AllowIntervals) reltime_t else void,
+
+            /// timeouts collection if member of
+            timeouts: if (relative_access == .AllowRelative) ?*TimeoutWheelType else void,
+
             /// initialize Timeout structure
             pub fn init(init_interval: ?reltime_t) Timeout {
                 return Timeout{
@@ -79,18 +92,6 @@ fn TimeoutWheel(
                 };
             }
 
-            /// absolute expiration time
-            expires: abstime_t,
-
-            /// Timeout list if pending on wheel or expiry queue
-            pending: ?*TimeoutList,
-
-            /// Timeout interval if periodic
-            /// rather than using an optional type we internally use 0 to indicate no interval
-            interval: if (intervals == .AllowIntervals) reltime_t else void,
-
-            /// timeouts collection if member of
-            timeouts: if (relative_access == .AllowRelative) ?*TimeoutWheelType else void,
             fn setTimeouts(self: *Timeout, T: ?*TimeoutWheelType) void {
                 if (relative_access == .AllowRelative) {
                     self.timeouts = T;
